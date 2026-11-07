@@ -1,30 +1,21 @@
 # Architecture
 
-## Purpose
+## Overview
 
-`github.com/Trysac/u148-config-hot-reload` is a small, dependency-free Go library: Hot-reload a configuration file in Go: content-hash change detection, parse and validate before swap, atomic reads, change callbacks and an injected tick source
+`confighotreload` enables safe hot-reloading of configuration files in Go applications.
 
-## Shape
+### Invalidation and Safety Flow
 
-```text
-caller code --> package confighotreload (repository root)
-                    |
-                    +-- pure functions, no I/O, no global mutable state
-                    +-- internal/ (optional private helpers)
-```
+1. **Read with bounds:** Reads the configuration using `io.LimitReader(r, maxBytes+1)`. If bytes exceed `maxBytes`, `ErrTooLarge` is returned without allocating unbounded memory.
+2. **Hash Check:** Computes `sha256` of file content.
+   - If the hash matches `currentHash`, reload is a no-op returning `(false, nil)`.
+   - If the hash matches `rejectedHash`, reload is a no-op returning `(false, nil)` without re-invoking `Parse` or `OnError`.
+3. **Parse and Validate:** Calls caller-supplied `Parse` and optional `Validate`.
+   - If parse fails: returns wrapped `ErrParse`, updates `rejectedHash`, retains existing configuration, and invokes `OnError`.
+   - If validation fails: returns wrapped `ErrValidate`, updates `rejectedHash`, retains existing configuration, and invokes `OnError`.
+4. **Atomic Pointer Swap:** On success, replaces the pointer in `atomic.Pointer[T]`, updates `currentHash`, clears rejection tracking, and invokes `OnChange` outside critical serialization if needed.
 
-- **Public API**: every exported identifier of the root package. Unexported identifiers and
-  `internal/` packages may change without a major version.
-- **Errors**: invalid input returns an error; exported sentinel errors (such as `ErrBlank`) let
-  callers branch with `errors.Is`. The library never panics on input, prints or exits.
-- **Side effects**: none. If a feature needs I/O, accept an interface (`io.Reader` or a small
-  custom one) instead of opening resources, and record the choice in an ADR.
+### Concurrency Model
 
-## Quality contract
-
-`scripts/check` is the single definition of the gates; `fabrica.json` tells the factory and CI
-how to run it. See [TESTING.md](TESTING.md).
-
-## Decisions
-
-Architecture decisions are recorded in [decisions/](decisions/) as numbered ADRs.
+- Reads via `Current()` are lock-free and race-free using `sync/atomic.Pointer`.
+- Reloads are serialized with a `sync.Mutex`.
