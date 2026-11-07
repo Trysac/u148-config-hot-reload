@@ -9,4 +9,5 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Implement atomic validated configuration hot-reloading with content-hash change detection and tick-based watching.
 - Initial project structure from the factory utility template.

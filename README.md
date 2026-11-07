@@ -1,55 +1,51 @@
 # config-hot-reload
 
-[![Go Reference](https://pkg.go.dev/badge/github.com/Trysac/u148-config-hot-reload.svg)](https://pkg.go.dev/github.com/Trysac/u148-config-hot-reload)
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![CI](https://github.com/Trysac/u148-config-hot-reload/actions/workflows/ci.yml/badge.svg)](https://github.com/Trysac/u148-config-hot-reload/actions/workflows/ci.yml)
+Hot-reload a configuration file in Go with content-hash change detection, pre-swap validation, lock-free reads, and injected tick sources. This library ensures that bad configurations never replace the current working configuration by enforcing validation before atomic swaps.
 
-Hot-reload a configuration file in Go: content-hash change detection, parse and validate before swap, atomic reads, change callbacks and an injected tick source
+## The Problem
 
-## Problem
+Services typically reload configuration on SIGHUP or via file watchers and swap in whatever they parsed. Consequently, a syntax error or a validation failure in a production configuration file can take the service down or lead to partially applied settings. Furthermore, filesystem watchers are often platform-specific and trigger multiple events for a single save operation.
 
-Describe in two or three sentences the concrete problem this utility solves, who hits it, and what
-they do today without it. Replace this paragraph when the first real feature lands.
+## Installation
 
-## Install
-
-```sh
+```bash
 go get github.com/Trysac/u148-config-hot-reload
 ```
-
-Requires Go 1.23 or newer. No dependencies outside the standard library.
 
 ## Usage
 
 ```go
-package main
+import "github.com/Trysac/u148-config-hot-reload"
 
-import (
-	"errors"
-	"fmt"
+type Config struct { Port int }
 
-	"github.com/Trysac/u148-config-hot-reload"
-)
-
-func main() {
-	// Normalize trims surrounding whitespace and lower-cases the text.
-	out, _ := confighotreload.Normalize("  Hello World ")
-	fmt.Println(out) // -> "hello world"
-
-	// Blank input is rejected explicitly instead of returning an empty string.
-	if _, err := confighotreload.Normalize("   "); errors.Is(err, confighotreload.ErrBlank) {
-		fmt.Println("rejected:", err)
-	}
+// ... inside your application code
+opts := confighotreload.Options[Config]{
+	Path: "app.conf",
+	Parse: func(b []byte) (Config, error) { /* ... */ },
 }
+r, err := confighotreload.New(opts)
+if err != nil {
+	log.Fatal(err)
+}
+cfg := r.Current()
+_ = r.Watch(ctx, time.NewTicker(5*time.Second).C)
 ```
 
-## Documentation
+## Public API
 
-- [Architecture](docs/ARCHITECTURE.md) and [decisions](docs/decisions/)
-- [Testing](docs/TESTING.md) and [security](docs/SECURITY.md)
-- [Project record](docs/PROJECT.md) and [stack](docs/STACK.md)
-- [Changelog](CHANGELOG.md) and [contributing guide](CONTRIBUTING.md)
+- `New[T any](opts Options[T]) (*Reloader[T], error)`: Initializes the reloader; the initial load must succeed.
+- `Current() T`: Returns the latest validated configuration using a lock-free atomic pointer load.
+- `Reload() (changed bool, err error)`: Triggers a manual reload cycle. Serialized by a mutex.
+- `Watch(ctx context.Context, ticks <-chan time.Time) error`: Reloads on ticks provided by the caller.
 
-## License
+### Errors & Limits
 
-[MIT](LICENSE) (c) 2026 Miguel Gomez
+- Sentinel errors: `ErrParse`, `ErrValidate`, `ErrTooLarge`, `ErrInvalidOptions`. Wrapped with `fmt.Errorf`.
+- `MaxBytes`: Defaults to 1 MiB. Reads exceeding this return `ErrTooLarge`.
+
+## Why not Viper?
+
+This library provides a validated, atomic swap that never applies bad config, has zero external dependencies, does not rely on platform-specific watchers, and uses a simplified API compared to larger configuration frameworks.
+
+See [docs/SECURITY.md](docs/SECURITY.md) for vulnerability reporting and threat modeling.

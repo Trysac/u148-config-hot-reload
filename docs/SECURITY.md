@@ -2,19 +2,19 @@
 
 ## Threat model
 
-`github.com/Trysac/u148-config-hot-reload` is a pure library without I/O. The main risks are:
+`github.com/Trysac/u148-config-hot-reload` is a pure library without I/O side effects. 
 
-- **Supply chain**: a compromised dependency or CI action. Mitigation: standard library only,
-  `go.sum` verification, `govulncheck` in the local gates, Dependabot weekly updates, actions
-  pinned by commit SHA, minimal workflow permissions.
-- **Leaked secrets**: tokens committed by mistake. Mitigation: `gitleaks` runs in the local gates
-  and in CI; `.env` files are git-ignored.
-- **Untrusted input**: callers may pass hostile strings. Mitigation: validate input and return
-  explicit errors; never use `unsafe` or `os/exec` with untrusted data.
+### Defended
 
-## Publishing
+- **Malformed configurations**: Callbacks for `Parse` and `Validate` ensure that invalid data is caught before reaching the application state.
+- **Unbounded Memory**: `MaxBytes` prevents reading excessively large files into memory (default limit 1 MiB).
+- **Race conditions**: `Current()` uses `sync/atomic.Pointer` for lock-free read access, ensuring consistent reads even during reloads.
 
-Releases are git tags served through the Go module proxy and checksum database. No registry token
-is stored in the repository.
+### Not defended
 
-To report a vulnerability, see [SECURITY.md](../SECURITY.md).
+- **Panic propagation**: Callbacks (`OnChange`, `OnError`) run on the reloading goroutine; a panic within a callback is not recovered by the library.
+- **Input Source**: The library relies on the provided `Open` function. If `Open` is manipulated, the library cannot verify the file's provenance.
+
+## Reporting
+
+To report a vulnerability, please see the contact details provided in the repository guidelines.
